@@ -91,8 +91,9 @@ pipeline {
                 script {
                     // Run Trivy to scan the Docker image for HIGH and CRITICAL vulnerabilities
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+                    def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
                     sh """
-                    trivy image --exit-code 1 --severity HIGH,CRITICAL ${dockerTag}
+                    trivy image --exit-code 1 --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
                     """
                 }
             }
