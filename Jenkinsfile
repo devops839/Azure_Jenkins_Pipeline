@@ -76,10 +76,10 @@ pipeline {
         stage('Build & Tag Docker Image') {
             steps {
                 script {
-                    // Docker build using the multi-stage Dockerfile
+                    // Build the Docker image using your multi-stage Dockerfile
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
 
-                    // Build the Docker image using your multi-stage Dockerfile
+                    // Build the Docker image
                     sh """
                     docker build -t ${dockerTag} .
                     """
@@ -113,14 +113,16 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 script {
-                    // Update Kubeconfig for EKS
+                    // Update kubeconfig for EKS
                     sh """
                     aws eks update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --region ${env.AWS_REGION}
                     """
-                    // Deploy the application using kubectl
+                    // Replace the image tag dynamically in the deployment YAML and apply it
                     sh """
-                    kubectl set image deployment/boardshack boardshack=${env.ECR_REPO_URI}:${env.IMAGE_TAG} -n webapps
-                    kubectl rollout status deployment/boardshack -n webapps
+                    sed -i 's|<your-ecr-repo-uri>/voting-app:latest|${env.ECR_REPO_URI}:${env.IMAGE_TAG}|g' k8s/deployment.yaml
+                    kubectl apply -f k8s/deployment.yaml -n webapps
+                    kubectl apply -f k8s/service.yaml -n webapps
+                    kubectl rollout status deployment/voting-app-deployment -n webapps
                     """
                 }
             }
@@ -136,7 +138,6 @@ pipeline {
             }
         }
     }
-    
     post {
         always {
             script {
