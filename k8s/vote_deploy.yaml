@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: voting-app-container
-          image: <your-docker-registry>/voting-app:latest  # Replace with your actual image name
+          image: "<your-ecr-repo-uri>/voting-app:${BUILD_NUMBER}"  # Placeholder to be replaced in Jenkins
           ports:
             - containerPort: 8080  # Expose port 8080 from the container
           resources:
