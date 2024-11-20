@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voting-app-deployment
+  labels:
+    app: voting-app
+spec:
+  replicas: 3  # Number of pod replicas
+  selector:
+    matchLabels:
+      app: voting-app
+  template:
+    metadata:
+      labels:
+        app: voting-app
+    spec:
+      containers:
+        - name: voting-app-container
+          image: <your-docker-registry>/voting-app:latest  # Replace with your actual image name
+          ports:
+            - containerPort: 8080  # Expose port 8080 from the container
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "500m"
+            limits:
+              memory: "512Mi"
+              cpu: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: voting-app-service
+spec:
+  selector:
+    app: voting-app
+  ports:
+    - protocol: TCP
+      port: 80      # Port on which the service will be exposed
+      targetPort: 8080  # Port the container is listening on
+  type: LoadBalancer  # Type of service, this exposes the app externally
