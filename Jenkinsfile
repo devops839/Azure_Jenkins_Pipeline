@@ -78,10 +78,21 @@ pipeline {
                 script {
                     // Build the Docker image using your multi-stage Dockerfile
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
-
                     // Build the Docker image
                     sh """
                     docker build -t ${dockerTag} .
+                    """
+                }
+            }
+        }
+        // **Trivy Docker Image Scan** (Add Trivy scan for the built Docker image)
+        stage('Trivy Docker Image Scan') {
+            steps {
+                script {
+                    // Run Trivy to scan the Docker image for HIGH and CRITICAL vulnerabilities
+                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+                    sh """
+                    trivy image --exit-code 1 --severity HIGH,CRITICAL ${dockerTag}
                     """
                 }
             }
