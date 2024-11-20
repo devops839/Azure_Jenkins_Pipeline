@@ -1,17 +1,16 @@
 pipeline {
     agent any  // This defines the agent where the pipeline will run.
-    
     tools {
         jdk 'jdk17'  // Specifies the JDK to be used for the build (from the Eclipse Temurin plugin).
         maven 'maven3'  // Specifies the Maven installation to be used.
     }
-
     environment {
         SCANNER_HOME = tool 'sonar-scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'your-email@example.com'
         AWS_REGION = 'us-east-1'  // Your AWS region
         ECR_REPO_URI = '123456789012.dkr.ecr.us-east-1.amazonaws.com/boardshack'  // ECR Repository URI
         EKS_CLUSTER_NAME = 'your-eks-cluster'  // EKS Cluster name
+        IMAGE_TAG = "${env.BUILD_NUMBER}"  // Tag Docker image with Jenkins build number
     }
     stages {
         // Git Checkout Stage
@@ -73,35 +72,20 @@ pipeline {
                 }
             }
         }
-        // Docker Image Build & Tagging
+        // Docker Image Build & Tagging (Multi-stage Docker build)
         stage('Build & Tag Docker Image') {
             steps {
                 script {
-                    def dockerTag = "boardshack:${env.BUILD_NUMBER}"  // Tag with build number
-                    sh "docker build -t ${dockerTag} ."
+                    // Docker build using the multi-stage Dockerfile
+                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+
+                    // Build the Docker image using your multi-stage Dockerfile
+                    sh """
+                    docker build -t ${dockerTag} .
+                    """
                 }
             }
         }
-        // Docker Image Scan with Trivy
-        stage('Docker Image Scan') {
-            steps {
-                script {
-                    def dockerTag = "adijaiswal/boardshack:${env.BUILD_NUMBER}"  // Use tagged image
-                    sh "trivy image --format table -o trivy-image-report.html ${dockerTag}"
-                }
-            }
-        }
-        /* Push Docker Image to Docker Registry
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    def dockerTag = "adijaiswal/boardshack:${env.BUILD_NUMBER}"  // Use tagged image
-                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
-                        sh "docker push ${dockerTag}"
-                    }
-                }
-            }
-        }*/
         // Authenticate to AWS ECR
         stage('Authenticate to AWS ECR') {
             steps {
@@ -117,9 +101,11 @@ pipeline {
         stage('Push Docker Image to ECR') {
             steps {
                 script {
-                    def dockerTag = "boardshack:${env.BUILD_NUMBER}"
-                    sh "docker tag ${dockerTag} ${env.ECR_REPO_URI}:${dockerTag}"
-                    sh "docker push ${env.ECR_REPO_URI}:${dockerTag}"
+                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+                    // Tag the image for ECR
+                    sh "docker tag ${env.IMAGE_TAG} ${dockerTag}"
+                    // Push the image to ECR
+                    sh "docker push ${dockerTag}"
                 }
             }
         }
@@ -131,9 +117,9 @@ pipeline {
                     sh """
                     aws eks update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --region ${env.AWS_REGION}
                     """
-                    // Deploy the application using kubectl (ensure the correct Kubeconfig is set in Jenkins)
+                    // Deploy the application using kubectl
                     sh """
-                    kubectl set image deployment/boardshack boardshack=${env.ECR_REPO_URI}:${env.BUILD_NUMBER} -n webapps
+                    kubectl set image deployment/boardshack boardshack=${env.ECR_REPO_URI}:${env.IMAGE_TAG} -n webapps
                     kubectl rollout status deployment/boardshack -n webapps
                     """
                 }
