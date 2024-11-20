@@ -1,42 +1,29 @@
-
 pipeline {
-    agent any
-    
+    agent any    
     tools {
         jdk 'jdk17'
         maven 'maven3'
     }
-
     enviornment {
         SCANNER_HOME= tool 'sonar-scanner'
     }
-
     stages {
         stage('Git Checkout') {
             steps {
                git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/jaiswaladi246/Boardgame.git'
             }
-        }
-        
-        stage('Compile') {
+        }  
+        stage('Maven Compile') {
             steps {
                 sh "mvn compile"
             }
         }
-        
-        stage('Test') {
+        stage('Maven Test') {
             steps {
                 sh "mvn test"
             }
         }
-        
-        stage('File System Scan') {
-            steps {
-                sh "trivy fs --format table -o trivy-fs-report.html ."
-            }
-        }
-        
-        stage('SonarQube Analsyis') {
+        stage('SonarQube Code Analsyis') {
             steps {
                 withSonarQubeEnv('sonar') {
                     sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=BoardGame -Dsonar.projectKey=BoardGame \
@@ -44,21 +31,18 @@ pipeline {
                 }
             }
         }
-        
-        stage('Quality Gate') {
+        stage('Sonarqube Quality Gate') {
             steps {
                 script {
                   waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token' 
                 }
             }
         }
-        
         stage('Build') {
             steps {
                sh "mvn package"
             }
         }
-        
         stage('Publish To Nexus') {
             steps {
                withMaven(globalMavenSettingsConfig: 'global-settings', jdk: 'jdk17', maven: 'maven3', mavenSettingsConfig: '', traceability: true) {
@@ -66,7 +50,6 @@ pipeline {
                 }
             }
         }
-        
         stage('Build & Tag Docker Image') {
             steps {
                script {
@@ -76,13 +59,11 @@ pipeline {
                }
             }
         }
-        
         stage('Docker Image Scan') {
             steps {
                 sh "trivy image --format table -o trivy-image-report.html adijaiswal/boardshack:latest "
             }
         }
-        
         stage('Push Docker Image') {
             steps {
                script {
@@ -99,7 +80,6 @@ pipeline {
                 }
             }
         }
-        
         stage('Verify the Deployment') {
             steps {
                withKubeConfig(caCertificate: '', clusterName: 'kubernetes', contextName: '', credentialsId: 'k8-cred', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://172.31.8.146:6443') {
@@ -108,8 +88,6 @@ pipeline {
                 }
             }
         }
-        
-        
     }
     post {
     always {
