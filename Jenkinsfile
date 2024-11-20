@@ -8,8 +8,11 @@ pipeline {
 
     environment {
         SCANNER_HOME = tool 'sonar-scanner'  // Defines the location of SonarQube Scanner.
+        EMAIL_RECIPIENTS = 'your-email@example.com'
+        AWS_REGION = 'us-east-1'  // Your AWS region
+        ECR_REPO_URI = '123456789012.dkr.ecr.us-east-1.amazonaws.com/boardshack'  // ECR Repository URI
+        EKS_CLUSTER_NAME = 'your-eks-cluster'  // EKS Cluster name
     }
-
     stages {
         // Git Checkout Stage
         stage('Git Checkout') {
@@ -17,28 +20,24 @@ pipeline {
                 git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/jaiswaladi246/Boardgame.git'
             }
         }
-
         // Compile Stage (Using Maven)
         stage('Compile') {
             steps {
                 sh "mvn compile"
             }
         }
-
         // Test Stage (Using Maven)
         stage('Test') {
             steps {
                 sh "mvn test"
             }
         }
-
         // File System Scan using Trivy
         stage('File System Scan') {
             steps {
                 sh "trivy fs --format table -o trivy-fs-report.html ."
             }
         }
-
         // SonarQube Analysis Stage
         stage('SonarQube Analysis') {
             steps {
@@ -47,7 +46,6 @@ pipeline {
                 }
             }
         }
-
         // Quality Gate Stage (Wait for the SonarQube analysis result)
         stage('Quality Gate') {
             steps {
@@ -56,15 +54,13 @@ pipeline {
                 }
             }
         }
-
         // Build Stage (Create package with Maven)
         stage('Build') {
             steps {
-                sh "mvn package"
+                sh "mvn package -DskipTests"  // Skip tests if they're already run earlier
             }
         }
-
-        // Publish to JFrog (Deploy Maven artifacts to a jFrog repository)
+        // Publish to JFrog (Deploy Maven artifacts to a JFrog repository)
         stage('Publish To Artifactory') {
             steps {
                 script {
@@ -81,81 +77,110 @@ pipeline {
         stage('Build & Tag Docker Image') {
             steps {
                 script {
-                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
-                        sh "docker build -t adijaiswal/boardshack:latest ."
-                    }
+                    def dockerTag = "boardshack:${env.BUILD_NUMBER}"  // Tag with build number
+                    sh "docker build -t ${dockerTag} ."
                 }
             }
         }
-
         // Docker Image Scan with Trivy
         stage('Docker Image Scan') {
             steps {
-                sh "trivy image --format table -o trivy-image-report.html adijaiswal/boardshack:latest"
+                script {
+                    def dockerTag = "adijaiswal/boardshack:${env.BUILD_NUMBER}"  // Use tagged image
+                    sh "trivy image --format table -o trivy-image-report.html ${dockerTag}"
+                }
             }
         }
-
-        // Push Docker Image to Docker Registry
+        /* Push Docker Image to Docker Registry
         stage('Push Docker Image') {
             steps {
                 script {
+                    def dockerTag = "adijaiswal/boardshack:${env.BUILD_NUMBER}"  // Use tagged image
                     withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
-                        sh "docker push adijaiswal/boardshack:latest"
+                        sh "docker push ${dockerTag}"
                     }
                 }
             }
-        }
-
-        // Deploy to Kubernetes
-        stage('Deploy To Kubernetes') {
+        }*/
+        // Authenticate to AWS ECR
+        stage('Authenticate to AWS ECR') {
             steps {
-                withKubeConfig(credentialsId: 'k8-cred', namespace: 'webapps', serverUrl: 'https://172.31.8.146:6443') {
-                    sh "kubectl apply -f deployment-service.yaml"
+                script {
+                    // Log in to ECR using AWS CLI (ensure AWS CLI is configured on Jenkins)
+                    sh """
+                    aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REPO_URI}
+                    """
                 }
             }
         }
-
+        // Push Docker Image to AWS ECR
+        stage('Push Docker Image to ECR') {
+            steps {
+                script {
+                    def dockerTag = "boardshack:${env.BUILD_NUMBER}"
+                    sh "docker tag ${dockerTag} ${env.ECR_REPO_URI}:${dockerTag}"
+                    sh "docker push ${env.ECR_REPO_URI}:${dockerTag}"
+                }
+            }
+        }
+        // Deploy to EKS
+        stage('Deploy to EKS') {
+            steps {
+                script {
+                    // Update Kubeconfig for EKS
+                    sh """
+                    aws eks update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --region ${env.AWS_REGION}
+                    """
+                    // Deploy the application using kubectl (ensure the correct Kubeconfig is set in Jenkins)
+                    sh """
+                    kubectl set image deployment/boardshack boardshack=${env.ECR_REPO_URI}:${env.BUILD_NUMBER} -n webapps
+                    kubectl rollout status deployment/boardshack -n webapps
+                    """
+                }
+            }
+        }
         // Verify Deployment on Kubernetes
         stage('Verify the Deployment') {
             steps {
-                withKubeConfig(credentialsId: 'k8-cred', namespace: 'webapps', serverUrl: 'https://172.31.8.146:6443') {
+                script {
+                    // Check the Kubernetes resources
                     sh "kubectl get pods -n webapps"
                     sh "kubectl get svc -n webapps"
                 }
             }
         }
     }
+    
     post {
-    always {
-        script {
-            def jobName = env.JOB_NAME
-            def buildNumber = env.BUILD_NUMBER
-            def pipelineStatus = currentBuild.result ?: 'UNKNOWN'
-            def bannerColor = pipelineStatus.toUpperCase() == 'SUCCESS' ? 'green' : 'red'
-
-            def body = """
-                <html>
-                <body>
-                <div style="border: 4px solid ${bannerColor}; padding: 10px;">
-                <h2>${jobName} - Build ${buildNumber}</h2>
-                <div style="background-color: ${bannerColor}; padding: 10px;">
-                <h3 style="color: white;">Pipeline Status: ${pipelineStatus.toUpperCase()}</h3>
-                </div>
-                <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
-                </div>
-                </body>
-                </html>
-            """
-
-            emailext (
-                subject: "${jobName} - Build ${buildNumber} - ${pipelineStatus.toUpperCase()}",
-                body: body,
-                to: 'jaiswaladi246@gmail.com',
-                from: 'jenkins@example.com',
-                replyTo: 'jenkins@example.com',
-                mimeType: 'text/html',
-                attachmentsPattern: 'trivy-image-report.html'
-            )
+        always {
+            script {
+                def subject = ""
+                def body = ""
+                // Check the build result and customize the email content
+                if (currentBuild.currentResult == 'SUCCESS') {
+                    subject = "SUCCESS: Jenkins Build ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                    body = """
+                    <p>Build Result: SUCCESS</p>
+                    <p>Job: ${env.JOB_NAME}</p>
+                    <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+                    <p>Commit: ${env.GIT_COMMIT}</p>
+                    """
+                } else if (currentBuild.currentResult == 'FAILURE') {
+                    subject = "FAILURE: Jenkins Build ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                    body = """
+                    <p>Build Result: FAILURE</p>
+                    <p>Job: ${env.JOB_NAME}</p>
+                    <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+                    <p>Commit: ${env.GIT_COMMIT}</p>
+                    """
+                }
+                // Send the email
+                emailext (
+                    to: "${env.EMAIL_RECIPIENTS}",
+                    subject: subject,
+                    body: body
+                )
+            }
         }
     }
 }
