@@ -121,7 +121,6 @@ pipeline {
                     sh """
                     sed -i 's|<your-ecr-repo-uri>/voting-app:latest|${env.ECR_REPO_URI}:${env.IMAGE_TAG}|g' k8s/deployment.yaml
                     kubectl apply -f k8s/deployment.yaml -n webapps
-                    kubectl apply -f k8s/service.yaml -n webapps
                     kubectl rollout status deployment/voting-app-deployment -n webapps
                     """
                 }
