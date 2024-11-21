@@ -9,7 +9,7 @@ pipeline {
         EMAIL_RECIPIENTS = 'pavank839@outlook.com'
         AWS_REGION = 'us-west-2'  // Your AWS region
         ECR_REPO_URI = 'arn:aws:ecs:us-east-1:481665128974:cluster/Staging_Cluster'  // ECR Repository URI
-        EKS_CLUSTER_NAME = 'your-eks-cluster'  // EKS Cluster name
+        EKS_CLUSTER_NAME = ''  // EKS Cluster name
         IMAGE_TAG = "${env.BUILD_NUMBER}"  // Tag Docker image with Jenkins build number
     }
     stages {
