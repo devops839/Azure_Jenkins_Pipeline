@@ -5,7 +5,7 @@ pipeline {
         maven 'maven3'  // Specifies the Maven installation to be used.
     }
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'  // Defines the location of SonarQube Scanner.
+        SCANNER_HOME = tool 'sonar_scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'pavank839@outlook.com'
         AWS_REGION = 'us-west-2'  // Your AWS region
         ECR_REPO_URI = '123456789012.dkr.ecr.us-east-1.amazonaws.com/boardshack'  // ECR Repository URI
@@ -16,7 +16,7 @@ pipeline {
         // Git Checkout Stage
         stage('Git Checkout') {
             steps {
-                git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/jaiswaladi246/Boardgame.git'
+                git branch: 'main', credentialsId: 'github_cred', url: 'https://github.com/devops839/vote-app-springboot.git'
             }
         }
         // Compile Stage (Using Maven)
@@ -31,17 +31,11 @@ pipeline {
                 sh "mvn test"
             }
         }
-        // File System Scan using Trivy
-        stage('File System Scan') {
-            steps {
-                sh "trivy fs --format table -o trivy-fs-report.html ."
-            }
-        }
         // SonarQube Analysis Stage
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar') {
-                    sh '''$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=BoardGame -Dsonar.projectKey=BoardGame -Dsonar.java.binaries=.'''
+                    sh '''$SCANNER_HOME/bin/sonar_scanner -Dsonar.projectName=voting-app -Dsonar.projectKey=voting-app -Dsonar.java.binaries=.'''
                 }
             }
         }
@@ -49,7 +43,7 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
+                    waitForQualityGate abortPipeline: false, credentialsId: 'sonarqube_token'
                 }
             }
         }
@@ -64,7 +58,7 @@ pipeline {
             steps {
                 script {
                     // Ensure that the Artifactory server is configured in Jenkins (as described in Step 2)
-                    def server = Artifactory.server 'artifactory-server-id'  // Use the Artifactory server ID configured in Jenkins
+                    def server = Artifactory.server 'jfrog'  // Use the Artifactory server ID configured in Jenkins
                     def buildInfo = Artifactory.newBuildInfo()
 
                     // Deploy the artifact to Artifactory using Maven
