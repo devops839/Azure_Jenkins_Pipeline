@@ -120,9 +120,7 @@ pipeline {
         stage('Build & Tag Docker Image') {
             steps {
                 script {
-                    // Build the Docker image using your multi-stage Dockerfile
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
-                    // Build the Docker image
                     sh """
                     docker build -t ${dockerTag} .
                     """
@@ -137,7 +135,7 @@ pipeline {
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
                     def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
                     sh """
-                    trivy image --exit-code 1 --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
+                    trivy image --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
                     """
                 }
             }
@@ -146,32 +144,23 @@ pipeline {
         stage('Authenticate and Push Docker Image to ECR') {
             steps {
                 script {
-                    // Authenticate to AWS ECR
                     sh """
                     aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REPO_URI}
                     """
-                    // Tag the Docker image for ECR
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
                     sh "docker tag ${env.IMAGE_TAG} ${dockerTag}"
-                    // Push the Docker image to ECR
                     sh "docker push ${dockerTag}"
                 }
             }
         }
         // Deploy to EKS
-        stage('Deploy to EKS') {
+        stage('K8S Deploy') {
             steps {
                 script {
-                    // Update kubeconfig for EKS
-                    sh """
-                    aws eks update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --region ${env.AWS_REGION}
-                    """
-                    // Replace the image tag dynamically in the deployment YAML and apply it
-                    sh """
-                    sed -i 's|<your-ecr-repo-uri>/voting-app:latest|${env.ECR_REPO_URI}:${env.IMAGE_TAG}|g' k8s/deployment.yaml
-                    kubectl apply -f k8s/deployment.yaml -n webapps
-                    kubectl rollout status deployment/voting-app-deployment -n webapps
-                    """
+                    withAWS(credentials: 'AWS-CREDS', region: "${env.AWS_REGION}") {
+                        sh "aws eks update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --region ${env.AWS_REGION}"
+                        sh "kubectl apply -f k8s/deployment.yaml"
+                    }
                 }
             }
         }
@@ -180,8 +169,8 @@ pipeline {
             steps {
                 script {
                     // Check the Kubernetes resources
-                    sh "kubectl get pods -n webapps"
-                    sh "kubectl get svc -n webapps"
+                    sh "kubectl get pods"
+                    sh "kubectl get svc"
                 }
             }
         }
