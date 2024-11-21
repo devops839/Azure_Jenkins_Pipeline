@@ -8,7 +8,7 @@ pipeline {
         SCANNER_HOME = tool 'sonar_scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'pavank839@outlook.com'
         AWS_REGION = 'us-west-2'  // Your AWS region
-        ECR_REPO_URI = '123456789012.dkr.ecr.us-east-1.amazonaws.com/boardshack'  // ECR Repository URI
+        ECR_REPO_URI = 'arn:aws:ecs:us-east-1:481665128974:cluster/Staging_Cluster'  // ECR Repository URI
         EKS_CLUSTER_NAME = 'your-eks-cluster'  // EKS Cluster name
         IMAGE_TAG = "${env.BUILD_NUMBER}"  // Tag Docker image with Jenkins build number
     }
