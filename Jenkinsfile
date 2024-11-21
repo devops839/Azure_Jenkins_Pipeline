@@ -54,24 +54,21 @@ pipeline {
             }
         }
         // Publish to JFrog (Deploy Maven artifacts to a JFrog repository)
-        stage('Publish to Artifactory') {
+        stage('Push Artifacts to JFrog') {
             steps {
                 script {
-                    def server = Artifactory.server 'jfrog'
+                    def server = Artifactory.server('Artifactory')
                     def uploadSpec = """{
-                        "files": [
-                            {
-                                "pattern": "target/*.jar",
-                                "target": "example-repo-local/voting-app/${env.BUILD_ID}/"
-                            }
-                        ]
+                        "files": [{
+                            "pattern": "target/*.jar",
+                            "target": "example-repo-local/yourapp/${env.BUILD_ID}/"
+                        }]
                     }"""
-                    def buildInfo = server.upload spec: uploadSpec
-                    server.publishBuildInfo buildInfo
+                    server.upload(uploadSpec)
                 }
             }
         }
-        // Docker Image Build
+        // Docker Image Build 
 /*        stage('Docker Build') {
             steps {
                 script {
