@@ -8,7 +8,7 @@ pipeline {
         SCANNER_HOME = tool 'sonar_scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'pavank839@outlook.com'
         AWS_REGION = 'us-west-2'  // Your AWS region
-        ECR_REPO_URI = 'arn:aws:ecs:us-east-1:481665128974:cluster/Staging_Cluster'  // ECR Repository URI
+        ECR_REPO_URI = ''  // ECR Repository URI
         EKS_CLUSTER_NAME = ''  // EKS Cluster name
         IMAGE_TAG = "${env.BUILD_NUMBER}"  // Tag Docker image with Jenkins build number
     }
@@ -34,7 +34,7 @@ pipeline {
         // SonarQube Analysis Stage
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('sonar') {
+                withSonarQubeEnv('sonarqube') {
                     sh '''$SCANNER_HOME/bin/sonar_scanner -Dsonar.projectName=voting-app -Dsonar.projectKey=voting-app -Dsonar.java.binaries=.'''
                 }
             }
@@ -54,18 +54,68 @@ pipeline {
             }
         }
         // Publish to JFrog (Deploy Maven artifacts to a JFrog repository)
-        stage('Publish To Artifactory') {
+        stage('Publish to Artifactory') {
             steps {
                 script {
-                    // Ensure that the Artifactory server is configured in Jenkins (as described in Step 2)
-                    def server = Artifactory.server 'jfrog'  // Use the Artifactory server ID configured in Jenkins
-                    def buildInfo = Artifactory.newBuildInfo()
-
-                    // Deploy the artifact to Artifactory using Maven
-                    server.deployArtifacts buildInfo
+                    def server = Artifactory.server 'jfrog'
+                    def uploadSpec = """{
+                        "files": [
+                            {
+                                "pattern": "target/*.jar",
+                                "target": "example-repo-local/voting-app/${env.BUILD_ID}/"
+                            }
+                        ]
+                    }"""
+                    def buildInfo = server.upload spec: uploadSpec
+                    server.publishBuildInfo buildInfo
                 }
             }
         }
+        // Docker Image Build
+/*        stage('Docker Build') {
+            steps {
+                script {
+                    // Build the Docker image
+                    sh '''
+                    docker build -t pavan539/voting-app-java .
+                    docker tag pavan539/voting-app-java pavan539/voting-app-java:${IMAGE_TAG}
+                    '''
+                }
+            }
+        }
+
+        // Trivy Docker Image Scan
+        stage('Trivy Docker Image Scan') {
+            steps {
+                script {
+                    // Ensure Docker image is tagged with correct name
+                    def dockerTag = "pavan539/voting-app-java:${env.IMAGE_TAG}"
+                    def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
+                    // Scan the image for vulnerabilities
+                    sh """
+                    trivy image --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
+                    """
+                    // Check if the scan was successful (optional)
+                    def trivyScanResults = readFile(outputFile)
+                    echo "Trivy Scan Results: ${trivyScanResults}"
+                }
+            }
+        }
+        // Docker Push (only if Trivy scan passes)
+        stage('Push To DockerHub') {
+            steps {
+                script {
+                    // Ensure the image tag is correctly set
+                    def dockerTag = "pavan539/voting-app-java:${env.IMAGE_TAG}"
+                    
+                    // Push the image to the Docker registry (e.g., Docker Hub or ECR)
+                    withDockerRegistry(credentialsId: 'dockerhub_cred', toolName: 'docker') {
+                        // Push the tagged image to the registry
+                        sh "docker push ${dockerTag}"
+                    }
+                }
+            }
+        } */
         // Docker Image Build & Tagging (Multi-stage Docker build)
         stage('Build & Tag Docker Image') {
             steps {
@@ -92,25 +142,18 @@ pipeline {
                 }
             }
         }
-        // Authenticate to AWS ECR
-        stage('Authenticate to AWS ECR') {
+        // Authenticate & Push Image to ECR
+        stage('Authenticate and Push Docker Image to ECR') {
             steps {
                 script {
-                    // Log in to ECR using AWS CLI (ensure AWS CLI is configured on Jenkins)
+                    // Authenticate to AWS ECR
                     sh """
                     aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REPO_URI}
                     """
-                }
-            }
-        }
-        // Push Docker Image to AWS ECR
-        stage('Push Docker Image to ECR') {
-            steps {
-                script {
+                    // Tag the Docker image for ECR
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
-                    // Tag the image for ECR
                     sh "docker tag ${env.IMAGE_TAG} ${dockerTag}"
-                    // Push the image to ECR
+                    // Push the Docker image to ECR
                     sh "docker push ${dockerTag}"
                 }
             }
