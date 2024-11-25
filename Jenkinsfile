@@ -8,7 +8,7 @@ pipeline {
         SCANNER_HOME = tool 'sonar_scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'pavank839@outlook.com'
         AWS_REGION = 'us-west-2'  // Your AWS region
-        ECR_REPO_URI = ''  // ECR Repository URI
+        ECR_REPO_URI = '481665128974.dkr.ecr.us-west-2.amazonaws.com/appvoting'  // ECR Repository URI
         EKS_CLUSTER_NAME = ''  // EKS Cluster name
         IMAGE_TAG = "${env.BUILD_NUMBER}"  // Tag Docker image with Jenkins build number
     }
@@ -57,11 +57,11 @@ pipeline {
         stage('Push Artifacts to JFrog') {
             steps {
                 script {
-                    def server = Artifactory.server('Artifactory')
+                    def server = Artifactory.server('jfrog')
                     def uploadSpec = """{
                         "files": [{
                             "pattern": "target/*.jar",
-                            "target": "example-repo-local/yourapp/${env.BUILD_ID}/"
+                            "target": "/voting-app/java/${env.BUILD_ID}/"
                         }]
                     }"""
                     server.upload(uploadSpec)
