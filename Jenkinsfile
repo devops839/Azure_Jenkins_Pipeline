@@ -8,8 +8,8 @@ pipeline {
         SCANNER_HOME = tool 'sonar_scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'pavank839@outlook.com'
         AWS_REGION = 'us-west-2'  // Your AWS region
-        ECR_REPO_URI = '481665128974.dkr.ecr.us-west-2.amazonaws.com/appvoting'  // ECR Repository URI
-        EKS_CLUSTER_NAME = ''  // EKS Cluster name
+        ECR_REPO_URI = '481665128974.dkr.ecr.us-west-2.amazonaws.com/app'  // ECR Repository URI
+        EKS_CLUSTER_NAME = 'poc-eks'  // EKS Cluster name
         IMAGE_TAG = "${env.BUILD_NUMBER}"  // Tag Docker image with Jenkins build number
     }
     stages {
@@ -54,17 +54,45 @@ pipeline {
             }
         }
         // Publish to JFrog (Deploy Maven artifacts to a JFrog repository)
-        stage('Push Artifacts to JFrog') {
+        stage('Publish to Artifactory') {
             steps {
                 script {
-                    def server = Artifactory.server('jfrog')
+                    def server = Artifactory.server 'jfrog'
                     def uploadSpec = """{
-                        "files": [{
-                            "pattern": "target/*.jar",
-                            "target": "/voting-app/java/${env.BUILD_ID}/"
-                        }]
+                        "files": [
+                            {
+                                "pattern": "target/*.jar",
+                                "target": "example-repo-local/votingapp/${env.BUILD_ID}/"
+                            }
+                        ]
                     }"""
-                    server.upload(uploadSpec)
+                    echo "Upload Spec: ${uploadSpec}"
+                    def buildInfo = server.upload spec: uploadSpec
+                    server.publishBuildInfo buildInfo
+                }
+            }
+        }
+        // Docker Image Build & Tagging (Multi-stage Docker build)
+        stage('Build & Tag Docker Image') {
+            steps {
+                script {
+                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+                    sh """
+                    docker build -t ${dockerTag} .
+                    """
+                }
+            }
+        }
+        // **Trivy Docker Image Scan** (Add Trivy scan for the built Docker image)
+        stage('Trivy Docker Image Scan') {
+            steps {
+                script {
+                    // Run Trivy to scan the Docker image for HIGH and CRITICAL vulnerabilities
+                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+                    def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
+                    sh """
+                    trivy image --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
+                    """
                 }
             }
         }
@@ -113,30 +141,6 @@ pipeline {
                 }
             }
         } */
-        // Docker Image Build & Tagging (Multi-stage Docker build)
-        stage('Build & Tag Docker Image') {
-            steps {
-                script {
-                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
-                    sh """
-                    docker build -t ${dockerTag} .
-                    """
-                }
-            }
-        }
-        // **Trivy Docker Image Scan** (Add Trivy scan for the built Docker image)
-        stage('Trivy Docker Image Scan') {
-            steps {
-                script {
-                    // Run Trivy to scan the Docker image for HIGH and CRITICAL vulnerabilities
-                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
-                    def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
-                    sh """
-                    trivy image --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
-                    """
-                }
-            }
-        }
         // Authenticate & Push Image to ECR
         stage('Authenticate and Push Docker Image to ECR') {
             steps {
@@ -145,62 +149,24 @@ pipeline {
                     aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REPO_URI}
                     """
                     def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
-                    sh "docker tag ${env.IMAGE_TAG} ${dockerTag}"
+                    sh "docker images"
+                    sh "docker tag ${dockerTag} ${dockerTag}"
                     sh "docker push ${dockerTag}"
                 }
             }
         }
-        // Deploy to EKS
+        // Deploy to K8s
         stage('K8S Deploy') {
             steps {
                 script {
-                    withAWS(credentials: 'AWS-CREDS', region: "${env.AWS_REGION}") {
+                    withAWS(credentials: 'aws_cred', region: "${env.AWS_REGION}") {
                         sh "aws eks update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --region ${env.AWS_REGION}"
-                        sh "kubectl apply -f k8s/deployment.yaml"
+                        sh """
+                        sed 's/\${BUILD_NUMBER}/${env.BUILD_NUMBER}/g' k8s/vote_deploy.yaml > k8s/deployment-new-build.yaml
+                        kubectl apply -f k8s/deployment-new-build.yaml
+                        """
                     }
                 }
-            }
-        }
-        // Verify Deployment on Kubernetes
-        stage('Verify the Deployment') {
-            steps {
-                script {
-                    // Check the Kubernetes resources
-                    sh "kubectl get pods"
-                    sh "kubectl get svc"
-                }
-            }
-        }
-    }
-    post {
-        always {
-            script {
-                def subject = ""
-                def body = ""
-                // Check the build result and customize the email content
-                if (currentBuild.currentResult == 'SUCCESS') {
-                    subject = "SUCCESS: Jenkins Build ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-                    body = """
-                    <p>Build Result: SUCCESS</p>
-                    <p>Job: ${env.JOB_NAME}</p>
-                    <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
-                    <p>Commit: ${env.GIT_COMMIT}</p>
-                    """
-                } else if (currentBuild.currentResult == 'FAILURE') {
-                    subject = "FAILURE: Jenkins Build ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-                    body = """
-                    <p>Build Result: FAILURE</p>
-                    <p>Job: ${env.JOB_NAME}</p>
-                    <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
-                    <p>Commit: ${env.GIT_COMMIT}</p>
-                    """
-                }
-                // Send the email
-                emailext (
-                    to: "${env.EMAIL_RECIPIENTS}",
-                    subject: subject,
-                    body: body
-                )
             }
         }
     }
