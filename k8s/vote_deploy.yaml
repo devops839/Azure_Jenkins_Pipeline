@@ -14,9 +14,11 @@ spec:
       labels:
         app: voting-app
     spec:
+      imagePullSecrets:
+        - name: ecr-secret  # Reference to the Kubernetes secret
       containers:
         - name: voting-app-container
-          image: "481665128974.dkr.ecr.us-west-2.amazonaws.com/appvoting/voting-app:${BUILD_NUMBER}"  # Placeholder for Jenkins to replace with build number
+          image: "481665128974.dkr.ecr.us-west-2.amazonaws.com/app:${BUILD_NUMBER}"
           imagePullPolicy: Always  # Ensure the image is always pulled from ECR
           ports:
             - containerPort: 8080  # Expose port 8080 from the container
