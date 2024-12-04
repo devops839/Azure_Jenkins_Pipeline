@@ -168,54 +168,39 @@ pipeline {
             }
         }
     }
-
+    
     post {
         always {
-            emailext (
-                to: "${EMAIL_RECIPIENTS}",
-                subject: "Jenkins Pipeline: Build #${env.BUILD_NUMBER} Status",
-                body: """<html>
-                            <body>
-                                <p>The build ${env.BUILD_NUMBER} has completed. Status: ${currentBuild.result}. You can check the details on Jenkins.</p>
-                            </body>
-                        </html>"""
-            )
-        }
-
-        success {
-            emailext (
-                to: "${EMAIL_RECIPIENTS}",
-                subject: "Jenkins Pipeline: Build #${env.BUILD_NUMBER} Succeeded",
-                body: """<html>
-                            <body>
-                                <p style="color: green;">The build ${env.BUILD_NUMBER} has successfully completed. You can check the details <a href="${BUILD_URL}">here</a>.</p>
-                            </body>
-                        </html>"""
-            )
-        }
-
-        failure {
-            emailext (
-                to: "${EMAIL_RECIPIENTS}",
-                subject: "Jenkins Pipeline: Build #${env.BUILD_NUMBER} Failed",
-                body: """<html>
-                            <body>
-                                <p style="color: red;">The build ${env.BUILD_NUMBER} has failed. Please check the Jenkins logs for more details. You can view the build <a href="${BUILD_URL}">here</a>.</p>
-                            </body>
-                        </html>"""
-            )
-        }
-
-        unstable {
-            emailext (
-                to: "${EMAIL_RECIPIENTS}",
-                subject: "Jenkins Pipeline: Build #${env.BUILD_NUMBER} Unstable",
-                body: """<html>
-                            <body>
-                                <p>The build ${env.BUILD_NUMBER} is unstable. Please check the Jenkins logs for more details.</p>
-                            </body>
-                        </html>"""
-            )
+            script {
+                def jobName = env.JOB_NAME
+                def buildNumber = env.BUILD_NUMBER
+                def pipelineStatus = currentBuild.result ?: 'UNKNOWN'
+                def bannerColor = pipelineStatus.toUpperCase() == 'SUCCESS' ? 'green' : 'red'
+    
+                def body = """
+                    <html>
+                    <body>
+                    <div style="border: 4px solid ${bannerColor}; padding: 10px;">
+                    <h2>${jobName} - Build ${buildNumber}</h2>
+                    <div style="background-color: ${bannerColor}; padding: 10px;">
+                    <h3 style="color: white;">Pipeline Status: ${pipelineStatus.toUpperCase()}</h3>
+                    </div>
+                    <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
+                    </div>
+                    </body>
+                    </html>
+                """
+    
+                emailext (
+                    subject: "${jobName} - Build ${buildNumber} - ${pipelineStatus.toUpperCase()}",
+                    body: body,
+                    to: 'pavankalluri.14533@gmail.com',
+                    from: 'jenkins@example.com',
+                    replyTo: 'jenkins@example.com',
+                    mimeType: 'text/html',
+                    attachmentsPattern: 'trivy-image-report-${env.IMAGE_TAG}.txt'
+                )
+            }
         }
     }
 }
