@@ -1,11 +1,9 @@
 pipeline {
     agent any  // This defines the agent where the pipeline will run.
-
     tools {
         jdk 'jdk17'  // Specifies the JDK to be used for the build (from the Eclipse Temurin plugin).
         maven 'maven3'  // Specifies the Maven installation to be used.
     }
-
     environment {
         SCANNER_HOME = tool 'sonarqube_scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'pavankalluri.14533@gmail.com'
@@ -17,30 +15,23 @@ pipeline {
         AZURE_TENANT_ID = credentials('az_sp_tenant') // Azure Tenant ID (from Jenkins credentials)
         ACR_CRED = credentials('acr_cred')  // Azure Container Registry credentials
     }
-
+    
     stages {
-        // Git Checkout Stage
         stage('Git Checkout') {
             steps {
                 git branch: 'main', credentialsId: 'github_cred', url: 'https://github.com/devops839/Azure_Jenkins_Pipeline.git'
             }
         }
-
-        // Compile Stage (Using Maven)
-        stage('Compile') {
+        stage('Maven Compile') {
             steps {
                 sh "mvn compile"
             }
         }
-
-        // Test Stage (Using Maven)
-        stage('Test') {
+        stage('Maven Test') {
             steps {
                 sh "mvn test"
             }
         }
-
-        // SonarQube Analysis Stage
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonarqube') {
@@ -48,8 +39,6 @@ pipeline {
                 }
             }
         }
-
-        // Quality Gate Stage (Wait for the SonarQube analysis result)
         stage('Quality Gate') {
             steps {
                 script {
@@ -57,16 +46,12 @@ pipeline {
                 }
             }
         }
-
-        // Build Stage (Create package with Maven)
-        stage('Build') {
+        stage('Maven Build') {
             steps {
                 sh "mvn package -DskipTests"  // Skip tests if they're already run earlier
             }
         }
-
-        // Publish to Artifactory (Deploy Maven artifacts to a JFrog repository)
-        stage('Publish to Artifactory') {
+        stage('Publish to Jfrog Artifactory') {
             steps {
                 script {
                     def server = Artifactory.server 'jfrog'
@@ -84,8 +69,6 @@ pipeline {
                 }
             }
         }
-
-        // Docker Image Build & Tagging (Multi-stage Docker build)
         stage('Build & Tag Docker Image') {
             steps {
                 script {
@@ -96,56 +79,40 @@ pipeline {
                 }
             }
         }
-
-        // Trivy Docker Image Scan (Add Trivy scan for the built Docker image)
         stage('Trivy Docker Image Scan') {
             steps {
                 script {
                     def dockerTag = "${env.ACR_REPO_URI}:${env.IMAGE_TAG}"
-                    def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
-
-                    // Run Trivy to scan the Docker image for HIGH and CRITICAL vulnerabilities
+                    def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"
                     def trivyResult = sh(script: """
                         trivy image --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag} | tee ${outputFile}
                     """, returnStatus: true)
-
-                    // If Trivy scan fails, mark the build as unstable
                     if (trivyResult != 0) {
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
             }
         }
-
-        // Authenticate & Push Image to Azure Container Registry (ACR)
         stage('Authenticate and Push Docker Image to ACR') {
             steps {
                 script {
-                    // Login to Azure using the service principal credentials stored in Jenkins
                     sh """
                     az login --service-principal -u ${AZURE_SP_CRED_USR} -p ${AZURE_SP_CRED_PSW} --tenant ${AZURE_TENANT_ID}
                     """
                     def dockerTag = "${env.ACR_REPO_URI}:${env.IMAGE_TAG}"
-                    // Login to ACR using the credentials stored in Jenkins
                     sh """
                     echo ${ACR_CRED_PSW} | docker login ${env.ACR_REPO_URI} -u ${ACR_CRED_USR} --password-stdin
                     """
-                    // Push the Docker image to Azure Container Registry (ACR)
                     sh "docker push ${dockerTag}"
                 }
             }
         }
-
-        // Deploy to AKS
         stage('K8S Deploy') {
             steps {
                 script {
-                    // Set up kubectl to use Azure's AKS
                     sh """
                     az aks get-credentials --resource-group demo-aks-rg --name ${env.AKS_CLUSTER_NAME}
                     """
-
-                    // Modify Kubernetes YAML with the correct image tag and deploy
                     sh """
                     sed 's#demoacr839.azurecr.io/app:\${IMAGE_TAG}#${ACR_REPO_URI}:${env.IMAGE_TAG}#g' k8s/vote_deploy.yaml > k8s/deployment-new-build.yaml
                     kubectl apply -f k8s/deployment-new-build.yaml
@@ -153,8 +120,6 @@ pipeline {
                 }
             }
         }
-
-        // Deployment Verification Stage
         stage('Verify Deployment') {
             steps {
                 script {
@@ -168,7 +133,6 @@ pipeline {
             }
         }
     }
-    
     post {
         always {
             script {
