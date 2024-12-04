@@ -7,14 +7,17 @@ pipeline {
     environment {
         SCANNER_HOME = tool 'sonar_scanner'  // Defines the location of SonarQube Scanner.
         EMAIL_RECIPIENTS = 'pavank839@outlook.com'
-        AWS_REGION = 'us-west-2'  // Your AWS region
-        ECR_REPO_URI = '481665128974.dkr.ecr.us-west-2.amazonaws.com/app'  // ECR Repository URI
-        EKS_CLUSTER_NAME = 'poc-eks'  // EKS Cluster name
+        AZURE_REGION = 'eastus'  // Your Azure region
+        ACR_REPO_URI = 'demoacr839.azurecr.io/app'  // Azure Container Registry URI
+        AKS_CLUSTER_NAME = 'demo-aks'  // Azure Kubernetes Service (AKS) Cluster name
         IMAGE_TAG = "${env.BUILD_NUMBER}"  // Tag Docker image with Jenkins build number
     }
     stages {
         // Git Checkout Stage
         stage('Git Checkout') {
+            when {
+                branch 'azure_jenkins'  // Run only when the current branch is 'azure_jenkins'
+            }
             steps {
                 git branch: 'main', credentialsId: 'github_cred', url: 'https://github.com/devops839/vote-app-springboot.git'
             }
@@ -53,7 +56,7 @@ pipeline {
                 sh "mvn package -DskipTests"  // Skip tests if they're already run earlier
             }
         }
-        // Publish to JFrog (Deploy Maven artifacts to a JFrog repository)
+        // Publish to Artifactory (Deploy Maven artifacts to a JFrog repository)
         stage('Publish to Artifactory') {
             steps {
                 script {
@@ -62,7 +65,7 @@ pipeline {
                         "files": [
                             {
                                 "pattern": "target/*.jar",
-                                "target": "example-repo-local/votingapp/${env.BUILD_ID}/"
+                                "target": "libs-release-local//votingapp/${env.BUILD_ID}/"
                             }
                         ]
                     }"""
@@ -76,7 +79,7 @@ pipeline {
         stage('Build & Tag Docker Image') {
             steps {
                 script {
-                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+                    def dockerTag = "${env.ACR_REPO_URI}:${env.IMAGE_TAG}"
                     sh """
                     docker build -t ${dockerTag} .
                     """
@@ -88,7 +91,7 @@ pipeline {
             steps {
                 script {
                     // Run Trivy to scan the Docker image for HIGH and CRITICAL vulnerabilities
-                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
+                    def dockerTag = "${env.ACR_REPO_URI}:${env.IMAGE_TAG}"
                     def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
                     sh """
                     trivy image --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
@@ -96,76 +99,32 @@ pipeline {
                 }
             }
         }
-        // Docker Image Build 
-/*        stage('Docker Build') {
+        // Authenticate & Push Image to Azure Container Registry (ACR)
+        stage('Authenticate and Push Docker Image to ACR') {
             steps {
                 script {
-                    // Build the Docker image
-                    sh '''
-                    docker build -t pavan539/voting-app-java .
-                    docker tag pavan539/voting-app-java pavan539/voting-app-java:${IMAGE_TAG}
-                    '''
-                }
-            }
-        }
-
-        // Trivy Docker Image Scan
-        stage('Trivy Docker Image Scan') {
-            steps {
-                script {
-                    // Ensure Docker image is tagged with correct name
-                    def dockerTag = "pavan539/voting-app-java:${env.IMAGE_TAG}"
-                    def outputFile = "trivy-image-report-${env.IMAGE_TAG}.txt"  // Output file in table format (text file)
-                    // Scan the image for vulnerabilities
+                    // Login to Azure using a service principal
                     sh """
-                    trivy image --severity HIGH,CRITICAL --format table -o ${outputFile} ${dockerTag}
+                    az acr login --name demoacr839
                     """
-                    // Check if the scan was successful (optional)
-                    def trivyScanResults = readFile(outputFile)
-                    echo "Trivy Scan Results: ${trivyScanResults}"
-                }
-            }
-        }
-        // Docker Push (only if Trivy scan passes)
-        stage('Push To DockerHub') {
-            steps {
-                script {
-                    // Ensure the image tag is correctly set
-                    def dockerTag = "pavan539/voting-app-java:${env.IMAGE_TAG}"
-                    
-                    // Push the image to the Docker registry (e.g., Docker Hub or ECR)
-                    withDockerRegistry(credentialsId: 'dockerhub_cred', toolName: 'docker') {
-                        // Push the tagged image to the registry
-                        sh "docker push ${dockerTag}"
-                    }
-                }
-            }
-        } */
-        // Authenticate & Push Image to ECR
-        stage('Authenticate and Push Docker Image to ECR') {
-            steps {
-                script {
-                    sh """
-                    aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${env.ECR_REPO_URI}
-                    """
-                    def dockerTag = "${env.ECR_REPO_URI}:${env.IMAGE_TAG}"
-                    sh "docker images"
+                    def dockerTag = "${env.ACR_REPO_URI}:${env.IMAGE_TAG}"
                     sh "docker tag ${dockerTag} ${dockerTag}"
                     sh "docker push ${dockerTag}"
                 }
             }
         }
-        // Deploy to K8s
+        // Deploy to AKS
         stage('K8S Deploy') {
             steps {
                 script {
-                    withAWS(credentials: 'aws_cred', region: "${env.AWS_REGION}") {
-                        sh "aws eks update-kubeconfig --name ${env.EKS_CLUSTER_NAME} --region ${env.AWS_REGION}"
-                        sh """
-                        sed 's/\${BUILD_NUMBER}/${env.BUILD_NUMBER}/g' k8s/vote_deploy.yaml > k8s/deployment-new-build.yaml
-                        kubectl apply -f k8s/deployment-new-build.yaml
-                        """
-                    }
+                    // Set up kubectl to use Azure's AKS
+                    sh """
+                    az aks get-credentials --resource-group demo-aks-rg --name ${env.AKS_CLUSTER_NAME}
+                    """
+                    sh """
+                    sed 's/\${BUILD_NUMBER}/${env.BUILD_NUMBER}/g' k8s/vote_deploy.yaml > k8s/deployment-new-build.yaml
+                    kubectl apply -f k8s/deployment-new-build.yaml
+                    """
                 }
             }
         }
